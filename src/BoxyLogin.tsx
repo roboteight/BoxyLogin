@@ -1,43 +1,35 @@
-import { Circle, CircleArrowRight, CircleCheck, CircleHelp, CircleX, LogIn, Lock, User } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import {
+  Circle,
+  CircleArrowRight,
+  CircleCheck,
+  CircleHelp,
+  CircleX,
+  Eye,
+  EyeOff,
+  LogIn,
+  LogOut,
+  Lock,
+  User,
+} from 'lucide-react';
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { explode } from './explode';
 import styles from './BoxyLogin.module.scss';
-import { loadGoogle, requestGoogleAccessToken } from './google';
 
 export interface Credentials {
   username: string;
   password: string;
+}
+
+export interface Session {
+  username: string;
   rememberMe: boolean;
 }
 
 interface BoxyLoginProps {
-  /** Resolves to whether the credentials are valid. */
+  /** Resolves to whether the credentials are valid. Checked as soon as the password is entered. */
   authenticate: (credentials: Credentials) => boolean | Promise<boolean>;
-  /** Adds a "sign in with Google" button to the first face. */
-  google?: {
-    clientId: string;
-    /** Receives a Google OAuth access token; resolves to whether it is valid. */
-    authenticate: (accessToken: string) => boolean | Promise<boolean>;
-  };
-}
-
-function GoogleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="#4285F4"
-        d="M23.5 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.45a5.52 5.52 0 0 1-2.39 3.62v3h3.87c2.26-2.09 3.57-5.16 3.57-8.81Z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 24c3.24 0 5.95-1.07 7.93-2.92l-3.87-3A7.17 7.17 0 0 1 12 19.27a7.2 7.2 0 0 1-6.76-4.97H1.24v3.1A12 12 0 0 0 12 24Z"
-      />
-      <path fill="#FBBC05" d="M5.24 14.3a7.2 7.2 0 0 1 0-4.6v-3.1H1.24a12 12 0 0 0 0 10.8l4-3.1Z" />
-      <path
-        fill="#EA4335"
-        d="M12 4.73c1.76 0 3.34.6 4.58 1.8l3.43-3.43A11.5 11.5 0 0 0 12 0 12 12 0 0 0 1.24 6.6l4 3.1A7.2 7.2 0 0 1 12 4.73Z"
-      />
-    </svg>
-  );
+  /** Called once the user has chosen whether to be remembered; if it throws, the login is reported as failed. */
+  onLogin?: (session: Session) => void | Promise<void>;
 }
 
 /** Which face of the box is showing. */
@@ -45,34 +37,33 @@ type Step = 'start' | 'username' | 'password' | 'remember' | 'result';
 type Field = 'username' | 'password';
 type Outcome = 'success' | 'failure';
 
-export function BoxyLogin({ authenticate, google }: BoxyLoginProps) {
+export function BoxyLogin({ authenticate, onLogin }: BoxyLoginProps) {
   const id = useId();
   const [step, setStep] = useState<Step>('start');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // fields the user tried to skip: they get a nudge in their placeholder
   const [prompted, setPrompted] = useState<Field[]>([]);
+  // why the password was turned away, shown in its placeholder until the user starts typing again
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [shaking, setShaking] = useState(false);
+  const checking = useRef(false);
   const usernameInput = useRef<HTMLInputElement>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
-  const gsi = useRef<Awaited<ReturnType<typeof loadGoogle>>>(undefined);
-
-  // load Google's script up front: its popup can only open straight from a click
-  const googleClientId = google?.clientId;
-  useEffect(() => {
-    if (googleClientId)
-      loadGoogle().then(
-        (loaded) => (gsi.current = loaded),
-        () => undefined,
-      );
-  }, [googleClientId]);
+  const logoutButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (step === 'username') usernameInput.current?.focus({ preventScroll: true });
     if (step === 'password') passwordInput.current?.focus({ preventScroll: true });
   }, [step]);
+
+  useEffect(() => {
+    if (menuOpen) logoutButton.current?.focus({ preventScroll: true });
+  }, [menuOpen]);
 
   const reject = (field: Field) => {
     setPrompted((fields) => (fields.includes(field) ? fields : [...fields, field]));
@@ -86,38 +77,69 @@ export function BoxyLogin({ authenticate, google }: BoxyLoginProps) {
       case 'username':
         return username ? setStep('password') : reject('username');
       case 'password':
-        return password ? setStep('remember') : reject('password');
+        if (!password) return reject('password');
+        return verify();
       case 'remember':
-        return finish(() => authenticate({ username, password, rememberMe }));
+        return finish(async () => void (await onLogin?.({ username, rememberMe })));
       case 'result':
-        // a failed login invites another go; a successful one is done
+        // a failed login invites another go; a successful one offers to log out
         if (outcome === 'failure') {
           setPassword('');
           setOutcome(null);
           setStep('username');
+        } else if (outcome === 'success') {
+          setMenuOpen((open) => !open);
         }
     }
   };
 
-  const finish = async (check: () => boolean | Promise<boolean>) => {
+  // The box only moves on from the password once it is right.
+  const verify = async () => {
+    if (checking.current) return;
+    checking.current = true;
+    try {
+      if (await authenticate({ username, password })) {
+        setShowPassword(false); // don't leave it on display
+        setStep('remember');
+        return;
+      }
+      setPasswordError('is incorrect');
+    } catch {
+      setPasswordError('could not be checked, try again');
+    } finally {
+      checking.current = false;
+    }
+    setPassword('');
+    setShaking(true);
+    passwordInput.current?.focus({ preventScroll: true });
+  };
+
+  const logout = () => {
+    setMenuOpen(false);
+    setOutcome(null);
+    setUsername('');
+    setPassword('');
+    setRememberMe(false);
+    setPrompted([]);
+    setPasswordError(null);
+    setStep('start');
+  };
+
+  const finish = async (complete: () => Promise<void>) => {
     setOutcome(null);
     setStep('result');
     try {
-      setOutcome((await check()) ? 'success' : 'failure');
+      await complete();
+      setOutcome('success');
     } catch {
       setOutcome('failure');
     }
   };
 
-  const loginWithGoogle = async () => {
-    if (!google || !gsi.current) return;
-    let token: string;
-    try {
-      token = await requestGoogleAccessToken(gsi.current, google.clientId);
-    } catch {
-      return; // popup closed or blocked: stay on the first face
-    }
-    await finish(() => google.authenticate(token));
+  // typing sets off a little explosion of the character just typed (deleting doesn't)
+  const burst = (event: ChangeEvent<HTMLInputElement>) => {
+    const typed = (event.nativeEvent as InputEvent).data;
+    if (typed) explode(event.target, typed.slice(-1));
   };
 
   const onSubmit = (event: FormEvent) => {
@@ -129,7 +151,10 @@ export function BoxyLogin({ authenticate, google }: BoxyLoginProps) {
   const faceProps = (own: Step) => ({ inert: step !== own });
   const buttonType = (own: Step) => (step === own ? 'submit' : 'button');
 
-  const placeholder = (field: Field) => (prompted.includes(field) ? `enter your ${field} to continue` : field);
+  const labels: Record<Field, string> = { username: 'username or email', password: 'password' };
+  const placeholder = (field: Field) =>
+    (field === 'password' && passwordError && `password ${passwordError}`) ||
+    (prompted.includes(field) ? `enter your ${labels[field]} to continue` : labels[field]);
 
   return (
     <div
@@ -144,17 +169,6 @@ export function BoxyLogin({ authenticate, google }: BoxyLoginProps) {
               <button className={styles.button} type={buttonType('start')} title="login" aria-label="Begin login">
                 <User className={styles.icon} aria-hidden />
               </button>
-              {google && (
-                <button
-                  className={styles.button}
-                  type="button"
-                  title="sign in with Google"
-                  aria-label="Sign in with Google"
-                  onClick={() => void loginWithGoogle()}
-                >
-                  <GoogleIcon className={styles.icon} />
-                </button>
-              )}
             </div>
 
             <div className={`${styles.side} ${styles.front}`} {...faceProps('username')}>
@@ -163,12 +177,15 @@ export function BoxyLogin({ authenticate, google }: BoxyLoginProps) {
                 <input
                   ref={usernameInput}
                   name="username"
-                  aria-label="username"
+                  aria-label="username or email"
                   aria-invalid={prompted.includes('username') && !username}
-                  title="enter your username"
+                  title="enter your username or email"
                   placeholder={placeholder('username')}
                   value={username}
-                  onChange={(event) => setUsername(event.target.value)}
+                  onChange={(event) => {
+                    setUsername(event.target.value);
+                    burst(event);
+                  }}
                   autoComplete="off"
                   required
                 />
@@ -183,18 +200,36 @@ export function BoxyLogin({ authenticate, google }: BoxyLoginProps) {
               <label className={styles.field}>
                 <input
                   ref={passwordInput}
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   name="password"
                   aria-label="password"
-                  aria-invalid={prompted.includes('password') && !password}
+                  aria-invalid={passwordError !== null || (prompted.includes('password') && !password)}
                   title="enter your password"
                   placeholder={placeholder('password')}
                   value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setPasswordError(null);
+                    burst(event);
+                  }}
                   autoComplete="off"
                   required
                 />
               </label>
+              <button
+                className={`${styles.button} ${styles.toggle}`}
+                type="button"
+                title={showPassword ? 'hide password' : 'show password'}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((shown) => !shown)}
+              >
+                {showPassword ? (
+                  <EyeOff className={styles.icon} aria-hidden />
+                ) : (
+                  <Eye className={styles.icon} aria-hidden />
+                )}
+              </button>
               <button className={styles.button} type={buttonType('password')} aria-label="Next: remember me">
                 <CircleArrowRight className={styles.icon} aria-hidden />
               </button>
@@ -243,6 +278,8 @@ export function BoxyLogin({ authenticate, google }: BoxyLoginProps) {
                 type={buttonType('result')}
                 title={outcome === 'failure' ? 'logout' : undefined}
                 aria-label={outcome === 'failure' ? 'Login failed, try again' : 'Logged in'}
+                aria-expanded={outcome === 'success' ? menuOpen : undefined}
+                aria-controls={outcome === 'success' ? `${id}-menu` : undefined}
               >
                 {outcome === 'success' && <User className={styles.icon} aria-hidden />}
                 {outcome === 'failure' && <CircleX className={styles.icon} aria-hidden />}
@@ -251,7 +288,20 @@ export function BoxyLogin({ authenticate, google }: BoxyLoginProps) {
           </div>
         </fieldset>
       </form>
+      {menuOpen && (
+        <div
+          className={styles.menu}
+          id={`${id}-menu`}
+          onKeyDown={(event) => event.key === 'Escape' && setMenuOpen(false)}
+        >
+          <button ref={logoutButton} className={styles.logout} type="button" onClick={logout}>
+            <LogOut className={styles.icon} aria-hidden />
+            log out
+          </button>
+        </div>
+      )}
       <p className={styles.visuallyHidden} role="status">
+        {passwordError && `Password ${passwordError}.`}
         {outcome === 'success' && 'Logged in.'}
         {outcome === 'failure' && 'Login failed. Try again.'}
       </p>
