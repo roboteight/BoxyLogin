@@ -1,0 +1,250 @@
+// The box is a 3D cube: every transform below is physical (X/Y/Z), so it uses left/top rather than logical properties.
+.wrapper {
+  --size: 4em;
+  --surface: #f7f7f7;
+  --success: #2ebea5;
+  --fail: #ea1f54;
+  --text: #333;
+  --muted: #999;
+  --trans: 250ms linear;
+
+  position: absolute;
+  inset: 50% auto auto 50%;
+  inline-size: calc(var(--size) * 8);
+  block-size: var(--size);
+  translate: -50% -50%;
+  font-family: 'Josefin Sans', sans-serif;
+
+  // (the original's `perspective: 1000` had no unit, so browsers ignored it: the box is drawn without perspective)
+
+  &[data-shaking='true'] {
+    animation: bad-input 0.5s linear;
+  }
+}
+
+.fieldset {
+  border: 0;
+  min-inline-size: 0;
+}
+
+.inner {
+  inline-size: 100%;
+  block-size: var(--size);
+  color: var(--text);
+  transform-style: preserve-3d;
+  transform-origin: 50% 50%;
+
+  // `transform` (not `rotate`) on purpose: it keeps the original's rotation path between faces
+  transition: transform 0.85s cubic-bezier(0.17, 0.67, 0.14, 0.93);
+
+  &[data-step='start'] {
+    transform: rotateY(-90deg);
+  }
+
+  &[data-step='password'] {
+    transform: rotateX(90deg);
+  }
+
+  &[data-step='remember'] {
+    transform: rotateX(180deg);
+  }
+
+  &[data-step='result'] {
+    transform: rotateY(90deg);
+  }
+}
+
+%face {
+  position: absolute;
+  top: 0;
+  left: 0;
+  block-size: var(--size);
+  background-color: var(--surface);
+  border-radius: 2px;
+}
+
+.cap {
+  @extend %face;
+
+  inline-size: var(--size);
+  display: grid;
+
+  &.left {
+    transform: rotateY(90deg) translate3d(0, 0, calc(var(--size) * 7));
+  }
+
+  &.right {
+    transform: rotateY(-90deg) translate3d(0, 0, calc(var(--size) / 2));
+  }
+
+  &[data-outcome='success'] .button {
+    color: var(--success);
+  }
+
+  &[data-outcome='failure'] .button {
+    color: var(--fail);
+  }
+}
+
+.side {
+  @extend %face;
+
+  inline-size: calc(var(--size) * 8);
+  display: flex;
+  align-items: center;
+
+  .icon {
+    margin-inline: 1.2em;
+    color: var(--muted);
+  }
+
+  &.front {
+    transform: translate3d(0, 0, calc(var(--size) / 2));
+  }
+
+  &.bottom {
+    transform: rotateX(-90deg) translate3d(0, 0, calc(var(--size) / 2));
+  }
+
+  &.top {
+    transform: rotateX(90deg) translate3d(0, 0, calc(var(--size) / 2));
+  }
+
+  &.back {
+    transform: rotateX(-180deg) translate3d(0, 0, calc(var(--size) / 2));
+  }
+}
+
+.field {
+  flex: 1;
+
+  input[name] {
+    inline-size: 100%;
+    padding: 0.5rem 0.25rem 0.25rem;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 2px 0 var(--success);
+    }
+  }
+}
+
+.remember {
+  cursor: pointer;
+  user-select: none;
+
+  &:has(:focus-visible) {
+    outline: 2px solid var(--success);
+    outline-offset: 2px;
+  }
+}
+
+.icon {
+  flex: none;
+  inline-size: 1.5em;
+  block-size: 1.5em;
+  transition: color var(--trans);
+}
+
+.checked {
+  color: var(--success) !important;
+}
+
+.button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: var(--size);
+  block-size: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+
+  .cap & .icon {
+    color: inherit;
+  }
+
+  &:hover .icon {
+    color: var(--success);
+  }
+
+  .cap[data-outcome] &:hover .icon {
+    color: inherit;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--success);
+    outline-offset: -4px;
+  }
+}
+
+// kept off-screen rather than display: none, so the checkbox stays keyboard-operable
+.visuallyHidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@keyframes bad-input {
+  8% {
+    transform: translateX(-10px);
+  }
+
+  15% {
+    box-shadow: 0 0 10px #ee5830;
+  }
+
+  41% {
+    transform: translateX(-10px);
+  }
+
+  25%,
+  58% {
+    transform: translateX(10px);
+  }
+
+  75% {
+    transform: translateX(-5px);
+  }
+
+  92% {
+    transform: translateX(5px);
+  }
+
+  0%,
+  100% {
+    transform: translateX(0);
+    box-shadow: 0 0 10px transparent;
+  }
+}
+
+// no movement for people who ask for less; the flash still ends the animation, which resets the state
+@keyframes bad-input-flash {
+  15% {
+    box-shadow: 0 0 10px #ee5830;
+  }
+
+  0%,
+  100% {
+    box-shadow: 0 0 10px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wrapper[data-shaking='true'] {
+    animation-name: bad-input-flash;
+  }
+
+  .inner,
+  .icon {
+    transition-duration: 0.01ms;
+  }
+}

@@ -5,3 +5,10 @@
   margin: 0;
   padding: 0;
 }
+
+html,
+body {
+  min-block-size: 100dvh;
+  color: white;
+  background-color: tomato;
+}
