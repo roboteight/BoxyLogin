@@ -69,6 +69,16 @@
   inline-size: var(--size);
   display: grid;
 
+  // buttons don't inherit font-size, so their `em`-based width would fall short of the cap and push the icon off-centre
+  .button {
+    inline-size: 100%;
+  }
+
+  // with a second button (Google) the face splits into two halves, each keeping its icon centred
+  &:has(.button:nth-child(2)) {
+    grid-template-rows: 1fr 1fr;
+  }
+
   &.left {
     transform: rotateY(90deg) translate3d(0, 0, calc(var(--size) * 7));
   }

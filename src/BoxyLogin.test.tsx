@@ -1,7 +1,12 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BoxyLogin, type Credentials } from './BoxyLogin';
+
+vi.mock('./google', () => ({
+  loadGoogle: () => Promise.resolve({}),
+  requestGoogleAccessToken: () => Promise.resolve('token-123'),
+}));
 
 const authenticate = ({ username, password }: Credentials) => username === 'admin' && password === '1234';
 
@@ -46,5 +51,19 @@ describe('BoxyLogin', () => {
     await user.click(screen.getByRole('button', { name: 'Login failed, try again' }));
     expect(screen.getByLabelText('username')).toHaveFocus();
     expect(screen.getByLabelText('password')).toHaveValue('');
+  });
+
+  it('only offers Google sign-in when configured', () => {
+    render(<BoxyLogin authenticate={authenticate} />);
+    expect(screen.queryByRole('button', { name: 'Sign in with Google' })).not.toBeInTheDocument();
+  });
+
+  it('logs in with a Google access token', async () => {
+    const user = userEvent.setup();
+    const googleAuthenticate = vi.fn(() => true);
+    render(<BoxyLogin authenticate={authenticate} google={{ clientId: 'id', authenticate: googleAuthenticate }} />);
+    await vi.waitFor(() => user.click(screen.getByRole('button', { name: 'Sign in with Google' })));
+    expect(await screen.findByRole('status')).toHaveTextContent('Logged in.');
+    expect(googleAuthenticate).toHaveBeenCalledWith('token-123');
   });
 });
