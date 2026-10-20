@@ -10,5 +10,3 @@ npm test         # tests (Vitest)
 npm run lint     # Stylelint
 npm run format   # Prettier
 ```
-
-The legacy source lives in `original/`, for reference.
